@@ -1,12 +1,14 @@
 import { Router } from "express";
 import { z } from "zod";
-import { AppError } from "../app";
+import { AppError } from "../errors/errors";
 import { Campaign } from "../models/Campaign";
 import { Submission } from "../models/Submission";
 import { ladderSchema } from "../domain/ladder";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { validateBody } from "../middleware/validate";
 import { validateObjectId } from "../middleware/validateObjectId";
+import { asyncHandler } from "../middleware/asyncHandler";
+import { serialiseCampaign, serialiseSubmission } from "../http/serialisers";
 
 const createCampaignSchema = z.object({
   name: z.string().min(1).max(120),
@@ -27,34 +29,30 @@ campaignRouter.post(
   requireAuth,
   requireRole("brand"),
   validateBody(createCampaignSchema),
-  async (req, res, next) => {
-    try {
-      const { name, platform, budget, ladder } = req.body;
+  asyncHandler(async (req, res) => {
+    const { name, platform, budget, ladder } = req.body;
 
-      // A top milestone above the budget can never be fully paid.
-      const topPayout = Math.max(
-        ...ladder.map((m: { payout: number }) => m.payout),
+    // A top milestone above the budget can never be fully paid.
+    const topPayout = Math.max(
+      ...ladder.map((m: { payout: number }) => m.payout),
+    );
+    if (topPayout > budget) {
+      throw new AppError(
+        400,
+        "LADDER_EXCEEDS_BUDGET",
+        `Top milestone (${topPayout}) exceeds the campaign budget (${budget})`,
       );
-      if (topPayout > budget) {
-        throw new AppError(
-          400,
-          "LADDER_EXCEEDS_BUDGET",
-          `Top milestone (${topPayout}) exceeds the campaign budget (${budget})`,
-        );
-      }
-
-      const campaign = await Campaign.create({
-        brand: req.user!.id,
-        name,
-        platform,
-        budget,
-        ladder,
-      });
-      res.status(201).json({ campaign: serialise(campaign) });
-    } catch (err) {
-      next(err);
     }
-  },
+
+    const campaign = await Campaign.create({
+      brand: req.user!.id,
+      name,
+      platform,
+      budget,
+      ladder,
+    });
+    res.status(201).json({ campaign: serialiseCampaign(campaign) });
+  }),
 );
 
 /** Brand: own campaigns with spend figures. */
@@ -62,16 +60,12 @@ campaignRouter.get(
   "/mine",
   requireAuth,
   requireRole("brand"),
-  async (req, res, next) => {
-    try {
-      const campaigns = await Campaign.find({ brand: req.user!.id }).sort({
-        createdAt: -1,
-      });
-      res.json({ campaigns: campaigns.map(serialise) });
-    } catch (err) {
-      next(err);
-    }
-  },
+  asyncHandler(async (req, res) => {
+    const campaigns = await Campaign.find({ brand: req.user!.id })
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json({ campaigns: campaigns.map(serialiseCampaign) });
+  }),
 );
 
 /** Creator: browse live campaigns. */
@@ -79,16 +73,12 @@ campaignRouter.get(
   "/",
   requireAuth,
   requireRole("creator"),
-  async (_req, res, next) => {
-    try {
-      const campaigns = await Campaign.find({ status: "live" }).sort({
-        createdAt: -1,
-      });
-      res.json({ campaigns: campaigns.map(serialise) });
-    } catch (err) {
-      next(err);
-    }
-  },
+  asyncHandler(async (_req, res) => {
+    const campaigns = await Campaign.find({ status: "live" })
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json({ campaigns: campaigns.map(serialiseCampaign) });
+  }),
 );
 
 /** Creator: submit a post to a campaign. */
@@ -115,7 +105,7 @@ campaignRouter.post(
         creator: req.user!.id,
         url: req.body.url,
       });
-      res.status(201).json({ submission });
+      res.status(201).json({ submission: serialiseSubmission(submission) });
     } catch (err) {
       // Unique index on { campaign, url } — duplicate link.
       if ((err as { code?: number }).code === 11000) {
@@ -132,15 +122,3 @@ campaignRouter.post(
   },
 );
 
-function serialise(c: InstanceType<typeof Campaign>) {
-  return {
-    id: c.id,
-    name: c.name,
-    platform: c.platform,
-    budget: c.budget,
-    spent: c.spent,
-    remaining: c.budget - c.spent, // derived, never stored
-    ladder: c.ladder,
-    status: c.status,
-  };
-}
