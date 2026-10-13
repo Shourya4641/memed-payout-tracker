@@ -1,5 +1,11 @@
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
+if (!BASE_URL) {
+  throw new Error(
+    "NEXT_PUBLIC_API_URL is not set — check env vars and redeploy.",
+  );
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -16,6 +22,8 @@ type ApiOptions = {
   body?: unknown;
   token?: string | null;
 };
+
+type ErrorEnvelope = { error?: { code?: string; message?: string } };
 
 export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
   const { method = "GET", body, token } = opts;
@@ -37,7 +45,17 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
   }
 
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+
+  let data: unknown = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    throw new ApiError(
+      res.status,
+      "BAD_RESPONSE",
+      `Non-JSON response from ${path}`,
+    );
+  }
 
   if (res.status === 401 && typeof window !== "undefined") {
     localStorage.removeItem("memed_token");
@@ -48,10 +66,11 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
   }
 
   if (!res.ok) {
+    const envelope = (data ?? {}) as ErrorEnvelope;
     throw new ApiError(
       res.status,
-      data?.error?.code ?? "UNKNOWN",
-      data?.error?.message ?? `Request failed (${res.status})`,
+      envelope.error?.code ?? "UNKNOWN",
+      envelope.error?.message ?? `Request failed (${res.status})`,
     );
   }
 

@@ -12,6 +12,9 @@ const USER_KEY = "memed_user";
 export function saveSession(token: string, user: SessionUser) {
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
+  if (!localStorage.getItem(TOKEN_KEY)) {
+    throw new Error("Could not save session — browser storage is unavailable.");
+  }
 }
 
 export function getToken(): string | null {
