@@ -1,25 +1,19 @@
-import express, {
-  type Request,
-  type Response,
-  type NextFunction,
-} from "express";
+import express, { type Request, type Response } from "express";
 import cors from "cors";
 import mongoose from "mongoose";
 import { env } from "./config/env";
 import { authRouter } from "./routes/auth.routes";
 import { campaignRouter } from "./routes/campaign.routes";
 import { submissionRouter } from "./routes/submission.routes";
+import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
+import { requestLogger } from "./middleware/requestLogger";
 
-export class AppError extends Error {
-  constructor(
-    public readonly statusCode: number,
-    public readonly code: string,
-    message: string,
-  ) {
-    super(message);
-    this.name = "AppError";
-  }
-}
+const DB_STATES: Record<number, string> = {
+  0: "disconnected",
+  1: "connected",
+  2: "connecting",
+  3: "disconnecting",
+};
 
 export function createApp() {
   const app = express();
@@ -42,14 +36,9 @@ export function createApp() {
     }),
   );
 
-  app.use(express.json());
-
-  const DB_STATES: Record<number, string> = {
-    0: "disconnected",
-    1: "connected",
-    2: "connecting",
-    3: "disconnecting",
-  };
+  // Bounded body size: no endpoint here accepts anything close to 10 kB.
+  app.use(express.json({ limit: "10kb" }));
+  app.use(requestLogger);
 
   // Always 200 so the service stays reachable and diagnosable even when Mongo is down.
   app.get("/health", (_req: Request, res: Response) => {
@@ -67,24 +56,8 @@ export function createApp() {
   app.use("/api/campaigns", campaignRouter);
   app.use("/api/submissions", submissionRouter);
 
-  app.use((_req: Request, res: Response) => {
-    res
-      .status(404)
-      .json({ error: { code: "NOT_FOUND", message: "Route not found" } });
-  });
-
-  // Four args are required for Express to treat this as an error handler.
-  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof AppError) {
-      return res
-        .status(err.statusCode)
-        .json({ error: { code: err.code, message: err.message } });
-    }
-    console.error("Unhandled error:", err);
-    return res.status(500).json({
-      error: { code: "INTERNAL_ERROR", message: "Something went wrong" },
-    });
-  });
+  app.use(notFoundHandler);
+  app.use(errorHandler);
 
   return app;
 }
