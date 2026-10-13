@@ -6,6 +6,7 @@ import express, {
 import cors from "cors";
 import mongoose from "mongoose";
 import { env } from "./config/env";
+import { authRouter } from "./routes/auth.routes";
 
 export class AppError extends Error {
   constructor(
@@ -58,6 +59,8 @@ export function createApp() {
       uptime: Math.round(process.uptime()),
     });
   });
+
+  app.use("/api/auth", authRouter);
 
   app.use((_req: Request, res: Response) => {
     res
