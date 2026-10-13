@@ -2,33 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import { clearSession, getToken, getUser } from "@/lib/auth";
+import { getToken } from "@/lib/auth";
 import { useSession } from "@/lib/useSession";
-import { formatINR, type Milestone } from "@/lib/ladder";
-
-type Campaign = {
-  id: string;
-  name: string;
-  platform: string;
-  budget: number;
-  spent: number;
-  remaining: number;
-  ladder: Milestone[];
-  status: string;
-};
-
-type Submission = {
-  _id: string;
-  url: string;
-  views: number;
-  paidAmount: number;
-  campaign: {
-    _id: string;
-    name: string;
-    platform: string;
-    status: string;
-  } | null;
-};
+import { formatINR } from "@/lib/ladder";
+import type { Campaign, Submission } from "@/lib/types";
+import { PageHeader } from "@/components/PageHeader";
 
 export default function CreatorPage() {
   const { user, loading } = useSession("creator");
@@ -44,7 +22,8 @@ export default function CreatorPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Per-row draft view counts, keyed by submission id.
+  // Per-row draft view counts, keyed by submission id. One object rather than
+  // state per row, since the row count is not known at render time.
   const [viewDrafts, setViewDrafts] = useState<Record<string, string>>({});
   const [patching, setPatching] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -77,16 +56,6 @@ export default function CreatorPage() {
     if (user) void load();
   }, [user, load]);
 
-  useEffect(() => {
-    // useEffect does not re-run when a page is restored from the back-forward
-    // cache, so the session guard would never fire on a Back navigation.
-    const recheck = () => {
-      if (!getUser()) window.location.replace("/login");
-    };
-    window.addEventListener("pageshow", recheck);
-    return () => window.removeEventListener("pageshow", recheck);
-  }, []);
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
@@ -117,8 +86,7 @@ export default function CreatorPage() {
    * would make.
    */
   async function simulateViews(id: string) {
-    const raw = viewDrafts[id];
-    const views = Number(raw);
+    const views = Number(viewDrafts[id]);
     if (!Number.isInteger(views) || views < 0) {
       setNotice("Views must be a whole number");
       return;
@@ -131,16 +99,21 @@ export default function CreatorPage() {
         `/api/submissions/${id}/views`,
         { method: "PATCH", body: { views } },
       );
-      setNotice(
-        r.paidNow > 0
-          ? `Paid ${formatINR(r.paidNow)}` +
-              (r.shortfall > 0
-                ? ` · ${formatINR(r.shortfall)} unpaid (budget exhausted)`
-                : "")
-          : r.shortfall > 0
-            ? `Nothing paid · ${formatINR(r.shortfall)} owed but budget is exhausted`
-            : "No new milestone crossed",
-      );
+
+      if (r.paidNow > 0) {
+        setNotice(
+          r.shortfall > 0
+            ? `Paid ${formatINR(r.paidNow)} · ${formatINR(r.shortfall)} unpaid (budget exhausted)`
+            : `Paid ${formatINR(r.paidNow)}`,
+        );
+      } else if (r.shortfall > 0) {
+        setNotice(
+          `Nothing paid · ${formatINR(r.shortfall)} owed but budget is exhausted`,
+        );
+      } else {
+        setNotice("No new milestone crossed");
+      }
+
       await load();
     } catch (err) {
       setNotice(err instanceof ApiError ? err.message : "Update failed");
@@ -153,18 +126,7 @@ export default function CreatorPage() {
 
   return (
     <main className="mx-auto max-w-3xl p-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Creator · {user.name}</h1>
-        <button
-          onClick={() => {
-            clearSession();
-            window.location.replace("/login");
-          }}
-          className="text-sm underline"
-        >
-          Log out
-        </button>
-      </div>
+      <PageHeader title={`Creator · ${user.name}`} />
 
       <p className="mt-4 text-sm">
         Total earnings:{" "}
@@ -226,7 +188,7 @@ export default function CreatorPage() {
 
         <div className="mt-3 flex flex-col gap-4">
           {submissions.map((s) => (
-            <div key={s._id} className="border p-4">
+            <div key={s.id} className="border p-4">
               <div className="flex items-baseline justify-between gap-4">
                 <span className="truncate text-sm">{s.url}</span>
                 <span className="shrink-0 text-xs uppercase text-gray-500">
@@ -245,17 +207,18 @@ export default function CreatorPage() {
                   type="number"
                   min={0}
                   placeholder="Simulate views"
-                  value={viewDrafts[s._id] ?? ""}
+                  value={viewDrafts[s.id] ?? ""}
                   onChange={(e) =>
-                    setViewDrafts((d) => ({ ...d, [s._id]: e.target.value }))
+                    // Spread into a NEW object — mutating would not re-render.
+                    setViewDrafts((d) => ({ ...d, [s.id]: e.target.value }))
                   }
                 />
                 <button
-                  onClick={() => void simulateViews(s._id)}
-                  disabled={patching === s._id || !viewDrafts[s._id]}
+                  onClick={() => void simulateViews(s.id)}
+                  disabled={patching === s.id || !viewDrafts[s.id]}
                   className="border px-3 text-sm disabled:opacity-40"
                 >
-                  {patching === s._id ? "Updating…" : "Update views"}
+                  {patching === s.id ? "Updating…" : "Update views"}
                 </button>
               </div>
             </div>

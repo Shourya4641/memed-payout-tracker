@@ -2,20 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import { clearSession, getToken, getUser } from "@/lib/auth";
+import { getToken } from "@/lib/auth";
 import { useSession } from "@/lib/useSession";
-import { parseLadder, formatINR, type Milestone } from "@/lib/ladder";
-
-type Campaign = {
-  id: string;
-  name: string;
-  platform: string;
-  budget: number;
-  spent: number;
-  remaining: number;
-  ladder: Milestone[];
-  status: string;
-};
+import { parseLadder, formatINR } from "@/lib/ladder";
+import type { Campaign, Milestone } from "@/lib/types";
+import { PageHeader } from "@/components/PageHeader";
 
 export default function BrandPage() {
   const { user, loading } = useSession("brand");
@@ -54,20 +45,11 @@ export default function BrandPage() {
     if (user) void load();
   }, [user, load]);
 
-  useEffect(() => {
-    // useEffect does not re-run when a page is restored from the back-forward
-    // cache, so the session guard would never fire on a Back navigation.
-    const recheck = () => {
-      if (!getUser()) window.location.replace("/login");
-    };
-    window.addEventListener("pageshow", recheck);
-    return () => window.removeEventListener("pageshow", recheck);
-  }, []);
-
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
 
+    // Parse before any network call: malformed input never leaves the browser.
     let ladder: Milestone[];
     try {
       ladder = parseLadder(ladderText);
@@ -85,6 +67,7 @@ export default function BrandPage() {
       });
       setName("");
       setBudget("");
+      // Refetch rather than patching local state — the server owns spent/remaining.
       await load();
     } catch (err) {
       setFormError(
@@ -99,18 +82,7 @@ export default function BrandPage() {
 
   return (
     <main className="mx-auto max-w-3xl p-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Brand · {user.name}</h1>
-        <button
-          onClick={() => {
-            clearSession();
-            window.location.replace("/login");
-          }}
-          className="text-sm underline"
-        >
-          Log out
-        </button>
-      </div>
+      <PageHeader title={`Brand · ${user.name}`} />
 
       <section className="mt-8">
         <h2 className="font-medium">New campaign</h2>
@@ -158,26 +130,27 @@ export default function BrandPage() {
           <button
             type="submit"
             disabled={busy}
-            className="border bg-black p-2 text-white disabled:opacity-50"
+            className="border bg-emerald-600 p-2 text-white disabled:opacity-50"
           >
             {busy ? "Creating…" : "Create campaign"}
           </button>
         </form>
 
-        {formError && <p className="mt-3 text-sm text-red-600">{formError}</p>}
+        {formError && <p className="mt-3 text-sm text-red-500">{formError}</p>}
       </section>
 
       <section className="mt-10">
         <h2 className="font-medium">Your campaigns</h2>
 
         {fetching && <p className="mt-3 text-sm">Loading…</p>}
-        {listError && <p className="mt-3 text-sm text-red-600">{listError}</p>}
+        {listError && <p className="mt-3 text-sm text-red-500">{listError}</p>}
         {!fetching && !listError && campaigns.length === 0 && (
-          <p className="mt-3 text-sm text-gray-600">No campaigns yet.</p>
+          <p className="mt-3 text-sm text-gray-500">No campaigns yet.</p>
         )}
 
         <div className="mt-3 flex flex-col gap-4">
           {campaigns.map((c) => {
+            // Derived during render — never stored, so it cannot drift.
             const pct =
               c.budget === 0 ? 0 : Math.round((c.spent / c.budget) * 100);
             return (
@@ -189,8 +162,11 @@ export default function BrandPage() {
                   </span>
                 </div>
 
-                <div className="mt-2 h-2 w-full bg-gray-200">
-                  <div className="h-2 bg-black" style={{ width: `${pct}%` }} />
+                <div className="mt-2 h-2 w-full bg-gray-700">
+                  <div
+                    className="h-2 bg-emerald-400"
+                    style={{ width: `${pct}%` }}
+                  />
                 </div>
 
                 <p className="mt-2 text-sm">
