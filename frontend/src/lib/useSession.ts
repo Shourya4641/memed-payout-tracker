@@ -14,17 +14,25 @@ export function useSession(requiredRole?: Role) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const u = getUser();
-    if (!u) {
-      router.replace("/login");
-      return;
-    }
-    if (requiredRole && u.role !== requiredRole) {
-      router.replace(u.role === "brand" ? "/brand" : "/creator");
-      return;
-    }
-    setUser(u);
-    setLoading(false);
+    const check = () => {
+      const u = getUser();
+      if (!u) {
+        window.location.replace("/login");
+        return;
+      }
+      if (requiredRole && u.role !== requiredRole) {
+        router.replace(u.role === "brand" ? "/brand" : "/creator");
+        return;
+      }
+      setUser(u);
+      setLoading(false);
+    };
+
+    check();
+    // useEffect does not re-run when a page is restored from the back-forward
+    // cache, so without this the guard never fires on a Back navigation.
+    window.addEventListener("pageshow", check);
+    return () => window.removeEventListener("pageshow", check);
   }, [requiredRole, router]);
 
   return { user, loading };
