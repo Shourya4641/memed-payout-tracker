@@ -5,12 +5,15 @@
   "main": "index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn src/server.ts",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
     "test": "jest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "seed": "npm run build && node dist/scripts/seed.js"
   },
-  "engines": { "node": ">=20 <25" },
+  "engines": {
+    "node": ">=20 <25"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
