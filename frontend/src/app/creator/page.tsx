@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import { clearSession, getToken } from "@/lib/auth";
+import { clearSession, getToken, getUser } from "@/lib/auth";
 import { useSession } from "@/lib/useSession";
 import { formatINR, type Milestone } from "@/lib/ladder";
 
@@ -77,6 +77,16 @@ export default function CreatorPage() {
     if (user) void load();
   }, [user, load]);
 
+  useEffect(() => {
+    // useEffect does not re-run when a page is restored from the back-forward
+    // cache, so the session guard would never fire on a Back navigation.
+    const recheck = () => {
+      if (!getUser()) window.location.replace("/login");
+    };
+    window.addEventListener("pageshow", recheck);
+    return () => window.removeEventListener("pageshow", recheck);
+  }, []);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
@@ -148,7 +158,7 @@ export default function CreatorPage() {
         <button
           onClick={() => {
             clearSession();
-            window.location.href = "/login";
+            window.location.replace("/login");
           }}
           className="text-sm underline"
         >
