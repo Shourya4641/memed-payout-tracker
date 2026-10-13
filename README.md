@@ -6,11 +6,11 @@ for the same milestone, and never beyond the campaign's budget.
 
 ## Live
 
-|          |                                                         |
-| -------- | ------------------------------------------------------- |
-| **App**  | https://memed-payout-tracker-one.vercel.app             |
-| **API**  | https://memed-payout-tracker-h4xk.onrender.com/health   |
-| **Repo** | https://github.com/Shourya4641/memed-payout-tracker |
+|          |                                                       |
+| -------- | ----------------------------------------------------- |
+| **App**  | https://memed-payout-tracker-one.vercel.app           |
+| **API**  | https://memed-payout-tracker-h4xk.onrender.com/health |
+| **Repo** | https://github.com/Shourya4641/memed-payout-tracker   |
 
 > **First request may take ~60 seconds.** The API runs on Render's free tier, which
 > spins the instance down after 15 minutes of inactivity. The app shows a "waking up"
@@ -38,10 +38,36 @@ whole payout mechanic is demonstrable in the browser.
 **Frontend** — Next.js 16 (App Router), TypeScript, Tailwind v4.
 **Hosting** — Vercel (frontend), Render (API), MongoDB Atlas M0.
 
+## Project structure
+
+```
+backend/src/
+  domain/        pure business logic — no I/O, no clock, no database
+  services/      orchestration: transactions, multi-document consistency
+  routes/        HTTP shape only — parse, authorise, delegate, respond
+  middleware/    auth, role, body validation, id validation, errors, logging
+  http/          response serialisers: the single place that decides what leaves the API
+  models/        Mongoose schemas and indexes
+  config/        environment validation, enforced at boot
+  errors.ts      AppError — no dependencies, so the import graph stays acyclic
+
+frontend/src/
+  app/           three client-rendered pages: login, brand, creator
+  lib/           api client, session storage, shared types, ladder parsing
+  components/    shared UI
+```
+
+Two deliberate choices in that layout. `domain/` has no imports from anywhere else in
+the codebase, which is what makes the payout logic testable without a database or a
+running server. And `AppError` lives in its own module rather than in `app.ts` — routes
+need it, and `app.ts` imports the routes, so putting it there would create an import
+cycle that only works by accident of module caching.
+
 ## Running locally
 
 ```bash
-git clone <repo> && cd memed-payout-tracker
+git clone https://github.com/Shourya4641/memed-payout-tracker
+cd memed-payout-tracker
 
 # API
 cd backend
@@ -63,6 +89,10 @@ cd backend && npm run typecheck
 cd frontend && npm run build  # type check + lint
 ```
 
+MongoDB **transactions require a replica set**, so a standalone local `mongod` will not
+work. Atlas M0 is a three-node replica set; point `MONGODB_URI` at a separate database
+on the same cluster (`.../memed_dev`) for development.
+
 ### Environment
 
 **`backend/.env`**
@@ -80,6 +110,9 @@ cd frontend && npm run build  # type check + lint
 | Variable              | Notes                                              |
 | --------------------- | -------------------------------------------------- |
 | `NEXT_PUBLIC_API_URL` | Inlined at build time — redeploy after changing it |
+
+Environment variables are parsed with Zod at boot. A missing or malformed value exits
+the process with a readable message rather than surfacing as a 500 later.
 
 Development uses a separate `memed_dev` database on the same Atlas cluster; the deployed
 service uses `memed`. `GET /health` reports which one it is connected to.
@@ -100,6 +133,11 @@ service uses `memed`. `GET /health` reports which one it is connected to.
 | `GET`   | `/api/submissions/mine`          | creator  | Own submissions + total earnings   |
 | `PATCH` | `/api/submissions/:id/views`     | **none** | Update views, trigger payout       |
 
+Responses are built by explicit serialisers rather than returning Mongoose documents, so
+internal fields (`__v`, timestamps, `lastViewsAt`) never leak and every resource exposes
+`id` rather than `_id`. `remaining` is derived on read — storing a second copy of a
+budget is how two numbers drift apart.
+
 Errors use one envelope throughout:
 
 ```json
@@ -112,6 +150,9 @@ Errors use one envelope throughout:
 ```
 
 `400` validation · `401` unauthenticated · `403` wrong role · `404` not found · `409` conflict.
+
+Internal failures log the real error server-side and return a generic message; no stack
+trace reaches the client.
 
 ```bash
 curl -X PATCH https://memed-payout-tracker-h4xk.onrender.com/api/submissions/<id>/views \
@@ -149,7 +190,8 @@ it should not have to know about campaign lifecycle.
 promise a payout that can never be honoured.
 
 **One submission per URL per campaign**, enforced by a unique index. Blocks the same
-link being farmed across multiple submissions.
+link being farmed across multiple submissions. The route translates the storage-level
+duplicate-key error into a domain `409` rather than letting a driver error escape.
 
 **The views endpoint is unauthenticated**, as the brief specifies. In production it
 would be service-to-service authenticated and rate limited.
@@ -157,6 +199,11 @@ would be service-to-service authenticated and rate limited.
 **The milestone ladder is entered as text** (`10000:500, 50000:2000`) rather than a
 dynamic row editor. A deliberate scope choice: the server validates the same rules
 regardless of what the client sends, so the richer UI adds no correctness.
+
+**Validation runs in two independent layers.** The client parses the ladder before any
+network call, so malformed input never leaves the browser; the server validates the same
+rules plus everything that depends on state it alone knows, such as the budget. The
+client layer is for responsiveness, never for correctness.
 
 ---
 
@@ -233,7 +280,20 @@ endpoint cannot be used to enumerate accounts. The response _timing_ still diffe
 since bcrypt only runs when the user exists; a production fix would compare against a
 dummy hash.
 
+**Request bodies are capped at 10 kB.** No endpoint here accepts anything close to that,
+and an unbounded `express.json()` is a trivial denial-of-service surface.
+
+**Malformed object ids are rejected with a 400** before they reach Mongoose, which would
+otherwise raise a `CastError` and surface as a 500 for what is a client mistake. This
+matters most on the unauthenticated views endpoint.
+
 **Tokens expire after 1 hour.** Any 401 clears the session and redirects to login.
+
+**Logging is `console` only** — an access log plus server-side error logging, with
+request bodies deliberately never logged, since signup and login payloads contain
+plaintext passwords. A production deployment would use a structured logger writing JSON
+to stdout with request ids for correlation; against a single instance with no log
+aggregation that adds nothing.
 
 ---
 
@@ -247,6 +307,11 @@ dummy hash.
 - No rate limiting on the unauthenticated views endpoint.
 - No integration tests against a live database; correctness is covered by unit tests on
   the pure logic plus the manual concurrency run above.
+- **Back-forward cache:** React's `useEffect` does not re-run when a page is restored
+  from the browser's bfcache, so a logged-out dashboard initially remained visible on
+  Back. Logout now replaces the history entry, and a `pageshow` listener in `useSession`
+  re-checks the session. Client-side guards remain UX only — authorisation is enforced
+  server-side on every request.
 
 ### Scaling to 10,000 creators
 
@@ -258,8 +323,11 @@ of submissions polled from the Instagram and YouTube APIs, not human traffic.
   partitioning removes transaction retries rather than just absorbing them.
 - Add an append-only `Payout` ledger (`{submission, amount, entitlementAfter, at}`) and
   reconcile it against `spent`. Today `spent` is the only record that money moved.
-- Indexes already exist on `submissions.campaign`, `submissions.creator`, and unique
-  `(campaign, url)`. Add `campaigns.brand` + `status` for the dashboard queries.
+- Single-field indexes already exist on `campaigns.brand`, `submissions.campaign` and
+  `submissions.creator`, plus a unique compound index on `(campaign, url)`. The next
+  additions are compound indexes matching the actual query shapes —
+  `(brand, createdAt)` and `(status, createdAt)` on campaigns, `(creator, createdAt)` on
+  submissions — so the sort is served by the index rather than in memory.
 - Cache the live-campaign list in Redis with a short TTL. Payout decisions must always
   read Mongo — a cached `spent` could authorise an overspend.
 - Rate-limit and service-authenticate the views endpoint.
