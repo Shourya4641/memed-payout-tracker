@@ -1,4 +1,5 @@
-export type Milestone = { views: number; payout: number };
+import type { Milestone } from "./types";
+export type { Milestone };
 
 /**
  * Parses "10000:500, 50000:2000" into milestones.
