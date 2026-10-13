@@ -25,9 +25,6 @@ submissionRouter.patch(
   async (req, res, next) => {
     try {
       const id = String(req.params.id);
-      if (!isValidObjectId(id)) {
-        throw new AppError(400, "INVALID_ID", "Invalid submission id");
-      }
       res.json(await applyViewUpdate(id, req.body.views));
     } catch (err) {
       next(err);
