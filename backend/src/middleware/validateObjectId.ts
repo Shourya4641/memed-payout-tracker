@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { isValidObjectId } from "mongoose";
-import { AppError } from "../app";
+import { AppError } from "../errors/errors";
 
 /**
  * Rejects malformed route params before Mongoose throws a CastError,

@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { AppError } from "../app";
+import { AppError } from "../errors/errors";
 import { Campaign } from "../models/Campaign";
 import { Submission } from "../models/Submission";
 import { computePayout } from "../domain/payout";
