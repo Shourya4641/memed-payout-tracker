@@ -3,14 +3,14 @@
 import { useSession } from "@/lib/useSession";
 import { clearSession } from "@/lib/auth";
 
-export default function BrandPage() {
+export default function CreatorPage() {
   const { user, loading } = useSession("creator");
   if (loading || !user) return <main className="p-8 text-sm">Loading…</main>;
 
   return (
     <main className="mx-auto max-w-3xl p-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Brand · {user.name}</h1>
+        <h1 className="text-xl font-semibold">Creator · {user.name}</h1>
         <button
           onClick={() => {
             clearSession();
