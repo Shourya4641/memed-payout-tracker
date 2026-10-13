@@ -7,6 +7,8 @@ import cors from "cors";
 import mongoose from "mongoose";
 import { env } from "./config/env";
 import { authRouter } from "./routes/auth.routes";
+import { campaignRouter } from "./routes/campaign.routes";
+import { submissionRouter } from "./routes/submission.routes";
 
 export class AppError extends Error {
   constructor(
@@ -55,12 +57,15 @@ export function createApp() {
     res.status(200).json({
       ok: true,
       db: DB_STATES[state] ?? "unknown",
+      dbName: mongoose.connection.name,
       env: env.NODE_ENV,
       uptime: Math.round(process.uptime()),
     });
   });
 
   app.use("/api/auth", authRouter);
+  app.use("/api/campaigns", campaignRouter);
+  app.use("/api/submissions", submissionRouter);
 
   app.use((_req: Request, res: Response) => {
     res
