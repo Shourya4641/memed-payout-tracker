@@ -39,6 +39,14 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
 
+  if (res.status === 401 && typeof window !== "undefined") {
+    localStorage.removeItem("memed_token");
+    localStorage.removeItem("memed_user");
+    if (!window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login?expired=1";
+    }
+  }
+
   if (!res.ok) {
     throw new ApiError(
       res.status,
