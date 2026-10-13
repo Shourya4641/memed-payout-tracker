@@ -10,6 +10,7 @@
     "test": "jest",
     "typecheck": "tsc --noEmit"
   },
+  "engines": { "node": ">=20 <25" },
   "keywords": [],
   "author": "",
   "license": "ISC",
