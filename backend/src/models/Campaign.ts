@@ -1,4 +1,5 @@
 import { Schema, model, type InferSchemaType } from "mongoose";
+import { CampaignStatus, Platform } from "../config/constants";
 
 const milestoneSchema = new Schema(
   {
@@ -17,16 +18,15 @@ const campaignSchema = new Schema(
       index: true,
     },
     name: { type: String, required: true, trim: true },
-    platform: { type: String, required: true, enum: ["instagram", "youtube"] },
+    platform: { type: String, required: true, enum: Object.values(Platform) },
     budget: { type: Number, required: true, min: 1 },
-    // Monotonically increasing. Never exceeds budget — enforced by a guarded $inc.
     spent: { type: Number, required: true, default: 0, min: 0 },
     ladder: { type: [milestoneSchema], required: true },
     status: {
       type: String,
       required: true,
-      default: "live",
-      enum: ["live", "exhausted", "ended"],
+      default: CampaignStatus.Live,
+      enum: Object.values(CampaignStatus),
     },
   },
   { timestamps: true },

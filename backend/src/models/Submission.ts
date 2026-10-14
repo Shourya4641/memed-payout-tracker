@@ -16,7 +16,6 @@ const submissionSchema = new Schema(
     },
     url: { type: String, required: true, trim: true },
     views: { type: Number, required: true, default: 0, min: 0 },
-    /** Cumulative rupees actually paid. The idempotency key of the whole system. */
     paidAmount: { type: Number, required: true, default: 0, min: 0 },
     flagged: { type: Boolean, required: true, default: false },
     lastViewsAt: { type: Date, default: null },
@@ -24,7 +23,7 @@ const submissionSchema = new Schema(
   { timestamps: true },
 );
 
-// One submission per post per campaign — blocks duplicate-link farming.
+// One submission per post per campaign.
 submissionSchema.index({ campaign: 1, url: 1 }, { unique: true });
 
 export type SubmissionDoc = InferSchemaType<typeof submissionSchema>;

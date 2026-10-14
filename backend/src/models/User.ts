@@ -1,4 +1,5 @@
 import { Schema, model, type InferSchemaType } from "mongoose";
+import { Role } from "../config/constants";
 
 const userSchema = new Schema(
   {
@@ -10,7 +11,7 @@ const userSchema = new Schema(
       trim: true,
     },
     passwordHash: { type: String, required: true },
-    role: { type: String, required: true, enum: ["brand", "creator"] },
+    role: { type: String, required: true, enum: Object.values(Role) },
     name: { type: String, required: true, trim: true },
   },
   { timestamps: true },
