@@ -3,7 +3,6 @@ import type { SubmissionDoc } from "../models/Submission";
 
 type WithId<T> = T & { _id: unknown };
 
-/** `remaining` is derived on read — two stored copies of a budget drift apart. */
 export function serialiseCampaign(c: WithId<CampaignDoc>) {
   return {
     id: String(c._id),
