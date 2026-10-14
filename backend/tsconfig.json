@@ -6,12 +6,11 @@
     "outDir": "./dist",
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true,
-    "resolveJsonModule": true
+    "skipLibCheck": true
   },
   "ts-node": {
-    "esm": true,
-    "experimentalSpecifierResolution": "node"
+    "resolveJsonModule": true,
+    "types": ["node", "jest"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
