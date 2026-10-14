@@ -15,7 +15,6 @@ async function start() {
 
   const app = createApp();
 
-  // Bind 0.0.0.0, not localhost — Render routes traffic to the container's external interface.
   const server = app.listen(env.PORT, "0.0.0.0", () => {
     console.log(`Listening on :${env.PORT} (${env.NODE_ENV})`);
   });
