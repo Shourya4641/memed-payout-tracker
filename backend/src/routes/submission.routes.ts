@@ -1,23 +1,18 @@
 import { Router } from "express";
-import { z } from "zod";
 import { Submission } from "../models/Submission";
 import { applyViewUpdate } from "../services/payout.service";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { validateBody } from "../middleware/validate";
-import { AppError } from "../errors/errors";
 import { validateObjectId } from "../middleware/validateObjectId";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { serialiseSubmission } from "../http/serialisers";
-
-const updateViewsSchema = z.object({
-  views: z.number().int().nonnegative(),
-});
+import { updateViewsSchema } from "../schemas/zod.schemas";
+import { Role } from "../config/constants";
 
 export const submissionRouter = Router();
 
 /**
- * Simulates a platform webhook. Deliberately unauthenticated per the brief —
- * in production this would be service-to-service authenticated and rate limited.
+ * Simulates a platform webhook.
  */
 submissionRouter.patch(
   "/:id/views",
@@ -32,7 +27,7 @@ submissionRouter.patch(
 submissionRouter.get(
   "/mine",
   requireAuth,
-  requireRole("creator"),
+  requireRole(Role.Creator),
   asyncHandler(async (req, res) => {
     const submissions = await Submission.find({ creator: req.user!.id })
       .populate("campaign", "name platform status")

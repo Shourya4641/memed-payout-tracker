@@ -1,25 +1,17 @@
 import { Router } from "express";
-import { z } from "zod";
 import { AppError } from "../errors/errors";
 import { Campaign } from "../models/Campaign";
 import { Submission } from "../models/Submission";
-import { ladderSchema } from "../domain/ladder";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { validateBody } from "../middleware/validate";
 import { validateObjectId } from "../middleware/validateObjectId";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { serialiseCampaign, serialiseSubmission } from "../http/serialisers";
-
-const createCampaignSchema = z.object({
-  name: z.string().min(1).max(120),
-  platform: z.enum(["instagram", "youtube"]),
-  budget: z.number().int().positive(),
-  ladder: ladderSchema,
-});
-
-const createSubmissionSchema = z.object({
-  url: z.url(),
-});
+import {
+  createCampaignSchema,
+  createSubmissionSchema,
+} from "../schemas/zod.schemas";
+import { CampaignStatus, HttpStatus, Role } from "../config/constants";
 
 export const campaignRouter = Router();
 
@@ -27,18 +19,18 @@ export const campaignRouter = Router();
 campaignRouter.post(
   "/",
   requireAuth,
-  requireRole("brand"),
+  requireRole(Role.Brand),
   validateBody(createCampaignSchema),
   asyncHandler(async (req, res) => {
     const { name, platform, budget, ladder } = req.body;
 
-    // A top milestone above the budget can never be fully paid.
     const topPayout = Math.max(
       ...ladder.map((m: { payout: number }) => m.payout),
     );
+
     if (topPayout > budget) {
       throw new AppError(
-        400,
+        HttpStatus.BadRequest,
         "LADDER_EXCEEDS_BUDGET",
         `Top milestone (${topPayout}) exceeds the campaign budget (${budget})`,
       );
@@ -51,7 +43,10 @@ campaignRouter.post(
       budget,
       ladder,
     });
-    res.status(201).json({ campaign: serialiseCampaign(campaign) });
+
+    res
+      .status(HttpStatus.Created)
+      .json({ campaign: serialiseCampaign(campaign) });
   }),
 );
 
@@ -59,11 +54,12 @@ campaignRouter.post(
 campaignRouter.get(
   "/mine",
   requireAuth,
-  requireRole("brand"),
+  requireRole(Role.Brand),
   asyncHandler(async (req, res) => {
     const campaigns = await Campaign.find({ brand: req.user!.id })
       .sort({ createdAt: -1 })
       .lean();
+
     res.json({ campaigns: campaigns.map(serialiseCampaign) });
   }),
 );
@@ -72,11 +68,12 @@ campaignRouter.get(
 campaignRouter.get(
   "/",
   requireAuth,
-  requireRole("creator"),
+  requireRole(Role.Creator),
   asyncHandler(async (_req, res) => {
-    const campaigns = await Campaign.find({ status: "live" })
+    const campaigns = await Campaign.find({ status: CampaignStatus.Live })
       .sort({ createdAt: -1 })
       .lean();
+
     res.json({ campaigns: campaigns.map(serialiseCampaign) });
   }),
 );
@@ -85,40 +82,46 @@ campaignRouter.get(
 campaignRouter.post(
   "/:id/submissions",
   requireAuth,
-  requireRole("creator"),
+  requireRole(Role.Creator),
   validateObjectId(),
   validateBody(createSubmissionSchema),
-  async (req, res, next) => {
-    try {
-      const campaign = await Campaign.findById(req.params.id);
-      if (!campaign) throw new AppError(404, "NOT_FOUND", "Campaign not found");
-      if (campaign.status !== "live") {
-        throw new AppError(
-          409,
-          "CAMPAIGN_NOT_LIVE",
-          `Campaign is ${campaign.status}`,
-        );
-      }
+  asyncHandler(async (req, res) => {
+    const campaign = await Campaign.findById(req.params.id);
+    if (!campaign)
+      throw new AppError(
+        HttpStatus.NotFound,
+        "NOT_FOUND",
+        "Campaign not found",
+      );
+    if (campaign.status !== CampaignStatus.Live) {
+      throw new AppError(
+        HttpStatus.Conflict,
+        "CAMPAIGN_NOT_LIVE",
+        `Campaign is ${campaign.status}`,
+      );
+    }
 
-      const submission = await Submission.create({
+    let submission;
+    try {
+      submission = await Submission.create({
         campaign: campaign._id,
         creator: req.user!.id,
         url: req.body.url,
       });
-      res.status(201).json({ submission: serialiseSubmission(submission) });
     } catch (err) {
-      // Unique index on { campaign, url } — duplicate link.
+      // Unique index on (campaign, url)
       if ((err as { code?: number }).code === 11000) {
-        return next(
-          new AppError(
-            409,
-            "DUPLICATE_SUBMISSION",
-            "That link is already submitted",
-          ),
+        throw new AppError(
+          HttpStatus.Conflict,
+          "DUPLICATE_SUBMISSION",
+          "That link is already submitted",
         );
       }
-      next(err);
+      throw err;
     }
-  },
-);
 
+    res
+      .status(HttpStatus.Created)
+      .json({ submission: serialiseSubmission(submission) });
+  }),
+);
