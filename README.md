@@ -45,11 +45,14 @@ backend/src/
   domain/        pure business logic — no I/O, no clock, no database
   services/      orchestration: transactions, multi-document consistency
   routes/        HTTP shape only — parse, authorise, delegate, respond
-  middleware/    auth, role, body validation, id validation, errors, logging
-  http/          response serialisers: the single place that decides what leaves the API
+  middleware/    auth, role, body and id validation, errors, request logging
+  schemas/       Zod request schemas
+  http/          response serialisers: the one place that decides what leaves the API
   models/        Mongoose schemas and indexes
-  config/        environment validation, enforced at boot
-  errors.ts      AppError — no dependencies, so the import graph stays acyclic
+  config/        environment validation (enforced at boot) and shared enums
+  errors/        AppError — no dependencies, so the import graph stays acyclic
+  types/         shared type aliases
+  scripts/       seed script
 
 frontend/src/
   app/           three client-rendered pages: login, brand, creator
@@ -57,11 +60,18 @@ frontend/src/
   components/    shared UI
 ```
 
-Two deliberate choices in that layout. `domain/` has no imports from anywhere else in
-the codebase, which is what makes the payout logic testable without a database or a
-running server. And `AppError` lives in its own module rather than in `app.ts` — routes
-need it, and `app.ts` imports the routes, so putting it there would create an import
-cycle that only works by accident of module caching.
+Three deliberate choices in that layout. `domain/` imports nothing else in the codebase,
+which is what makes the payout logic testable without a database or a running server.
+`AppError` lives in its own module rather than in `app.ts` — routes need it and `app.ts`
+imports the routes, so putting it there would create an import cycle that works only by
+accident of module caching. And `ladderSchema` stays in `domain/` rather than moving to
+`schemas/` with the rest: "payouts must increase with view thresholds" is a business
+rule, not a request shape.
+
+Status, platform, role and HTTP status values are enums in `config/constants.ts`. The
+motivation is typo safety rather than ease of renaming — `Campaign.find({ status: "liv" })`
+returns an empty array with no error anywhere in the stack, while
+`CampaignStatus.Liv` does not compile.
 
 ## Running locally
 
@@ -135,8 +145,9 @@ service uses `memed`. `GET /health` reports which one it is connected to.
 
 Responses are built by explicit serialisers rather than returning Mongoose documents, so
 internal fields (`__v`, timestamps, `lastViewsAt`) never leak and every resource exposes
-`id` rather than `_id`. `remaining` is derived on read — storing a second copy of a
-budget is how two numbers drift apart.
+`id` rather than `_id`. The property that matters: adding a field to a schema does not
+silently add it to the public API. `remaining` is derived on read — storing a second
+copy of a budget is how two numbers drift apart.
 
 Errors use one envelope throughout:
 
@@ -191,7 +202,9 @@ promise a payout that can never be honoured.
 
 **One submission per URL per campaign**, enforced by a unique index. Blocks the same
 link being farmed across multiple submissions. The route translates the storage-level
-duplicate-key error into a domain `409` rather than letting a driver error escape.
+duplicate-key error into a domain `409` rather than letting a driver error escape — the
+one place a route keeps an explicit `catch` instead of relying on `asyncHandler`, since
+error translation is domain logic and belongs next to the write that can produce it.
 
 **The views endpoint is unauthenticated**, as the brief specifies. In production it
 would be service-to-service authenticated and rate limited.
@@ -237,8 +250,11 @@ Two guarantees, by two mechanisms:
   matches while `spent + toPay <= budget`, inside a MongoDB transaction so the
   submission and the campaign move together or not at all.
 
-The `$expr` guard is redundant inside the transaction. It is kept so that a future
-refactor which removes the transaction still cannot overspend.
+The `$expr` filter is what enforces the invariant: a non-matching `updateOne` writes
+nothing rather than throwing. The `modifiedCount` check is what makes that failure loud —
+without it the code would fall through and credit the creator's `paidAmount` while the
+campaign's `spent` stayed put. Aborting the transaction keeps the two documents
+consistent.
 
 **Verified against the deployed API.** A campaign with a ₹1,000 budget and five
 submissions each owed ₹500 — ₹2,500 of demand against ₹1,000 of budget — with all five
@@ -289,11 +305,11 @@ matters most on the unauthenticated views endpoint.
 
 **Tokens expire after 1 hour.** Any 401 clears the session and redirects to login.
 
-**Logging is `console` only** — an access log plus server-side error logging, with
-request bodies deliberately never logged, since signup and login payloads contain
-plaintext passwords. A production deployment would use a structured logger writing JSON
-to stdout with request ids for correlation; against a single instance with no log
-aggregation that adds nothing.
+**Logging is `console` only** — an access log plus server-side error logging. Request
+bodies are deliberately never logged, since signup and login payloads contain plaintext
+passwords. Writing to stdout is the correct transport regardless of library; a
+structured logger would add levels, JSON formatting and redaction, none of which pays
+for itself against a single instance with no log aggregation.
 
 ---
 
@@ -307,6 +323,15 @@ aggregation that adds nothing.
 - No rate limiting on the unauthenticated views endpoint.
 - No integration tests against a live database; correctness is covered by unit tests on
   the pure logic plus the manual concurrency run above.
+- **Serialisers are hand-maintained.** A new schema field stays private until it is
+  added to the serialiser — safer than the reverse, but it is a quiet failure mode. The
+  production answer is a shared contract: generated types from an OpenAPI spec, or Zod
+  schemas shared between request validation and response shaping.
+- **Frontend string literals are not shared with the backend enums.** The two are
+  separate packages, and duplicating the constants would create two sources of truth
+  that can silently diverge. A shared package or generated types is the real fix.
+- **`CampaignStatus.Ended` is reserved and currently unreachable** — nothing sets it. It
+  exists for a brand-initiated stop, which is out of scope here.
 - **Back-forward cache:** React's `useEffect` does not re-run when a page is restored
   from the browser's bfcache, so a logged-out dashboard initially remained visible on
   Back. Logout now replaces the history entry, and a `pageshow` listener in `useSession`
