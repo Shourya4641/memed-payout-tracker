@@ -1,8 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 
 /**
- * Minimal access log. Deliberately not a logging library: nothing consumes
- * structured logs here, and Render's console is the only reader.
+ * Minimal access log.
  */
 export function requestLogger(req: Request, res: Response, next: NextFunction) {
   const start = Date.now();
