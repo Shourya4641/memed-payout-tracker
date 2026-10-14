@@ -5,6 +5,7 @@ import { User } from "../models/User";
 import { Campaign } from "../models/Campaign";
 import { Submission } from "../models/Submission";
 import { applyViewUpdate } from "../services/payout.service";
+import { Platform, Role } from "../config/constants";
 
 const PASSWORD = "demo12345";
 
@@ -31,13 +32,13 @@ async function seed() {
   const brand = await User.create({
     name: "Nykaa Social",
     email: "brand@memed.demo",
-    role: "brand",
+    role: Role.Brand,
     passwordHash,
   });
   const creator = await User.create({
     name: "Clip Raja",
     email: "creator@memed.demo",
-    role: "creator",
+    role: Role.Creator,
     passwordHash,
   });
 
@@ -45,7 +46,7 @@ async function seed() {
   const fresh = await Campaign.create({
     brand: brand._id,
     name: "Diwali Reel Drop",
-    platform: "instagram",
+    platform: Platform.Instagram,
     budget: 25_000,
     ladder: [
       { views: 10_000, payout: 500 },
@@ -58,7 +59,7 @@ async function seed() {
   const partial = await Campaign.create({
     brand: brand._id,
     name: "Monsoon Meme Pack",
-    platform: "youtube",
+    platform: Platform.YouTube,
     budget: 6_000,
     ladder: [
       { views: 20_000, payout: 1_000 },
@@ -70,7 +71,7 @@ async function seed() {
   const tight = await Campaign.create({
     brand: brand._id,
     name: "Flash Clip Sprint",
-    platform: "instagram",
+    platform: Platform.Instagram,
     budget: 1_500,
     ladder: [{ views: 10_000, payout: 1_000 }],
   });
