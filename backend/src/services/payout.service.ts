@@ -3,6 +3,7 @@ import { AppError } from "../errors/errors";
 import { Campaign } from "../models/Campaign";
 import { Submission } from "../models/Submission";
 import { computePayout } from "../domain/payout";
+import { CampaignStatus, HttpStatus } from "../config/constants";
 
 export interface ViewUpdateResult {
   submissionId: string;
@@ -15,13 +16,6 @@ export interface ViewUpdateResult {
 
 /**
  * Applies a view update and pays any newly-owed amount.
- *
- * Two guarantees, by two different mechanisms:
- *  - No double-pay: the amount is derived from stored `paidAmount`, so replaying
- *    an identical update computes toPay = 0. Idempotent by construction.
- *  - No overspend: the campaign's `spent` is raised by a conditional $inc that
- *    only matches while spent + toPay <= budget, inside a transaction so the
- *    submission's paidAmount and the campaign's spent move together or not at all.
  */
 export async function applyViewUpdate(
   submissionId: string,
@@ -32,16 +26,23 @@ export async function applyViewUpdate(
   try {
     let result!: ViewUpdateResult;
 
-    // withTransaction retries automatically on TransientTransactionError,
-    // which is what a concurrent write to the same campaign produces.
     await session.withTransaction(async () => {
       const sub = await Submission.findById(submissionId).session(session);
-      if (!sub) throw new AppError(404, "NOT_FOUND", "Submission not found");
+      if (!sub)
+        throw new AppError(
+          HttpStatus.NotFound,
+          "NOT_FOUND",
+          "Submission not found",
+        );
 
       const campaign = await Campaign.findById(sub.campaign).session(session);
-      if (!campaign) throw new AppError(404, "NOT_FOUND", "Campaign not found");
+      if (!campaign)
+        throw new AppError(
+          HttpStatus.NotFound,
+          "NOT_FOUND",
+          "Campaign not found",
+        );
 
-      // Views are monotonic: a stale or lower reading never triggers a clawback.
       const views = Math.max(sub.views, incomingViews);
 
       const { toPay, shortfall } = computePayout({
@@ -61,11 +62,9 @@ export async function applyViewUpdate(
           { session },
         );
 
-        // Redundant inside a transaction, kept so that a future refactor which
-        // drops the transaction still cannot overspend.
         if (res.modifiedCount !== 1) {
           throw new AppError(
-            409,
+            HttpStatus.Conflict,
             "BUDGET_CONFLICT",
             "Budget changed concurrently; retry",
           );
@@ -79,11 +78,11 @@ export async function applyViewUpdate(
 
       const newSpent = campaign.spent + toPay;
       let status = campaign.status;
-      if (status === "live" && newSpent >= campaign.budget) {
-        status = "exhausted";
+      if (status === CampaignStatus.Live && newSpent >= campaign.budget) {
+        status = CampaignStatus.Exhausted;
         await Campaign.updateOne(
           { _id: campaign._id },
-          { $set: { status: "exhausted" } },
+          { $set: { status: CampaignStatus.Exhausted } },
           { session },
         );
       }
